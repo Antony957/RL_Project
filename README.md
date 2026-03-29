@@ -10,16 +10,14 @@ This repo provides code for implementing the [SPR paper](https://arxiv.org/abs/2
 ## Install 
 To install the requirements, follow these steps:
 ```bash
-# PyTorch
-conda install pytorch torchvision -c pytorch
-export LC_ALL=C.UTF-8
-export LANG=C.UTF-8
-
-# Install requirements
-pip install -r requirements.txt
-
-# Finally, clone the project
+# Clone the project
 git clone https://github.com/mila-iqia/spr
+
+# Install the requirements
+bash setup.sh
+conda activate spr
+AutoROM --accept-license --install-dir $(python -c "import atari_py; import os; print(os.path.join(os.path.dirname(atari_py.__file__), 'atari_roms'))")
+
 ```
 
 ## Usage:

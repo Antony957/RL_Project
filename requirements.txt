@@ -1,11 +1,16 @@
-gym[atari]
+--extra-index-url https://download.pytorch.org/whl/cu121
+numpy<2.0
+gym[atari]==0.21.0
+torch
+torchvision
 wandb
 opencv-python
 scikit-learn
 recordclass
 matplotlib
-wandb
 kornia
-numpy
 pyprind
--e git+https://github.com/astooke/rlpyt.git@b32d589d12d31ba3c8a9cfb7a3c85c6e350b2904#egg=rlpyt
+psutil
+atari-py
+autorom
+git+https://github.com/astooke/rlpyt.git@b32d589d12d31ba3c8a9cfb7a3c85c6e350b2904#egg=rlpyt
