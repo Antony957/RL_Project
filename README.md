@@ -25,7 +25,7 @@ The default branch for the latest and stable changes is `release`.
 
 * To run SPR with augmentation
 ```bash
-python -m scripts.run --public --game pong --momentum-tau 1.
+CUDA_VISIBLE_DEVICES=7 python -m scripts.run --public --game pong --momentum-tau 1.
 ```
 
 * To run SPR without augmentation
