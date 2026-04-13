@@ -110,7 +110,9 @@ class ModelBasedPlanner:
         """
         self.model.eval()
 
-        # encode
+        # encode: merge framestack and channel dims [B,F,C,H,W] -> [B,F*C,H,W]
+        if observation.dim() == 5:
+            observation = observation.flatten(-4, -3)
         obs = self.model.transform(observation, augment=False)
         latent = self.model.conv(obs)
         if self.model.renormalize:
@@ -143,6 +145,8 @@ class ModelBasedPlanner:
         """和 plan() 一样，但额外返回 debug 信息。"""
         self.model.eval()
 
+        if observation.dim() == 5:
+            observation = observation.flatten(-4, -3)
         obs = self.model.transform(observation, augment=False)
         latent = self.model.conv(obs)
         if self.model.renormalize:

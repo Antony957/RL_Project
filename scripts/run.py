@@ -5,7 +5,6 @@ from rlpyt.utils.logging.context import logger_context
 
 import wandb
 import torch
-import torch.multiprocessing as mp
 import numpy as np
 import os
 import copy
@@ -20,13 +19,29 @@ from src.rlpyt_atari_env import AtariEnv
 from src.utils import set_config
 
 
+def save_checkpoint(agent, config, args, game, seed, save_dir="checkpoints"):
+    """训练结束后保存模型权重 + 完整 config，供后续 eval/planning 使用。"""
+    os.makedirs(save_dir, exist_ok=True)
+    model = getattr(agent.model, "module", agent.model)
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "config": config,
+        "args": vars(args),
+        "game": game,
+        "seed": seed,
+    }
+    path = os.path.join(save_dir, f"{game}_seed{seed}.pt")
+    torch.save(checkpoint, path)
+    print(f"Checkpoint saved: {path}")
+    return path
+
+
 def train_single_run(game, seed, cuda_idx, args, group_name):
-    """单个 (game, seed) 组合的训练，跑在独立进程中。"""
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
-    run_name = f"{game}_seed{seed}"
+    run_name = f"{game}_seed{seed}_eval_plan"
     wandb_kwargs = dict(
         config=vars(args),
         tags=[args.tag] if args.tag else None,
@@ -65,16 +80,12 @@ def train_single_run(game, seed, cuda_idx, args, group_name):
     algo = SPRCategoricalDQN(
         optim_kwargs=config["optim"], jumps=args_copy.jumps, **config["algo"]
     )
-    # agent = SPRAgent(
-    #     ModelCls=SPRCatDqnModel, model_kwargs=config["model"], **config["agent"]
-    # )
 
     agent = PlanningSPRAgent(
         ModelCls=SPRCatDqnModel,
         model_kwargs=config["model"],
-        planning_horizon=3,         # rollout 几步，别超过 jumps
-        planning_top_k=5,           # Q 值筛出 5 个候选再 rollout
-        planning_warmup_itrs=5000,  # 前 5000 itr 不用 planning
+        planning_horizon=3,
+        planning_top_k=3,
         **config["agent"],
     )
 
@@ -98,38 +109,22 @@ def train_single_run(game, seed, cuda_idx, args, group_name):
     with logger_context(log_dir, seed, name, config_log, snapshot_mode="last"):
         runner.train()
 
+    # ===== 训练结束，保存 checkpoint =====
+    save_checkpoint(agent, config, args_copy, game, seed)
+
     wandb.finish()
 
 
-def worker_fn(rank, tasks, cuda_idx, args, group_name):
-    """mp.spawn 入口：rank 索引到 tasks 列表中的 (game, seed)。"""
-    game, seed = tasks[rank]
-    train_single_run(game, seed, cuda_idx, args, group_name)
-
-
-def build_and_train_parallel(games, cuda_idx, args):
-    # 笛卡尔积: games × seeds
+def build_and_train_serial(games, cuda_idx, args):
     tasks = list(cartesian_product(games, args.seeds))
-    n_tasks = len(tasks)
-
     group_name = "multi_game_multi_seed"
     if args.tag:
         group_name += f"_{args.tag}"
 
-    print(f"=== 启动 {n_tasks} 个并行训练进程 (GPU {cuda_idx}) ===")
-    for i, (g, s) in enumerate(tasks):
-        print(f"  [{i}] game={g}, seed={s}")
-
-    if n_tasks == 1:
-        game, seed = tasks[0]
+    print(f"=== 串行训练 {len(tasks)} 个任务 (GPU {cuda_idx}) ===")
+    for i, (game, seed) in enumerate(tasks):
+        print(f"  [{i}/{len(tasks)}] game={game}, seed={seed}")
         train_single_run(game, seed, cuda_idx, args, group_name)
-    else:
-        mp.spawn(
-            worker_fn,
-            args=(tasks, cuda_idx, args, group_name),
-            nprocs=n_tasks,
-            join=True,
-        )
 
 
 if __name__ == "__main__":
@@ -138,17 +133,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    # ---------- 核心参数：多游戏 + 多 seed ----------
     parser.add_argument(
-        "--games", type=str, nargs="+", default=["private_eye"],
-        # , "breakout", "boxing", , "asterix", "alien"
+        "--games", type=str, nargs="+", default=["asterix", "alien"],
         help="List of Atari games, e.g. --games ms_pacman pong breakout",
     )
     parser.add_argument(
         "--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],
         help="List of random seeds, e.g. --seeds 0 1 2 3",
     )
-    # ------------------------------------------------
     parser.add_argument("--grayscale", type=int, default=1)
     parser.add_argument("--framestack", type=int, default=4)
     parser.add_argument("--imagesize", type=int, default=84)
@@ -212,9 +204,7 @@ if __name__ == "__main__":
     args.seed = args.seeds[0]
     args.game = args.games[0]
 
-    mp.set_start_method("spawn", force=True)
-
-    build_and_train_parallel(
+    build_and_train_serial(
         games=args.games,
         cuda_idx=args.cuda_idx,
         args=args,
